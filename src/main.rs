@@ -12,11 +12,13 @@ use rand::thread_rng;
 struct Cell {
     is_bomb: bool,
     is_visible: bool,
+    is_marked: bool,
 }
 
 struct Board {
     grid: Vec<Vec<Cell>>,
     size: usize,
+    num_of_bombs: usize,
 }
 
 impl Board {
@@ -24,18 +26,20 @@ impl Board {
         let mut board = Board {
             grid: Vec::new(),
             size: size,
+            num_of_bombs: num_of_bombs,
         };
 
-        for i in 0..size {
+        for _i in 0..size {
             board.grid.push(Vec::new());
         }
 
         // TODO: populate board.
         for i in 0..size {
-            for j in 0..size {
+            for _j in 0..size {
                 board.grid[i].push(Cell {
                     is_bomb: false,
                     is_visible: false,
+                    is_marked: false,
                 });
             }
         }
@@ -107,6 +111,26 @@ impl Board {
             }
         }
     }
+
+    fn chech_win(&self) -> bool {
+        let mut count = 0;
+
+        for i in 0..self.grid.len() {
+            for j in 0..self.grid.len() {
+                if !self.grid[i][j].is_visible {
+                    count += 1;
+                }
+            }
+        }
+
+        return count == self.num_of_bombs;
+    }
+
+    fn mark_cell_toggle(&mut self, x: usize, y: usize) {
+        if !self.grid[x][y].is_visible {
+            self.grid[x][y].is_marked = !self.grid[x][y].is_marked;
+        }
+    }
 }
 
 enum Status {
@@ -115,19 +139,14 @@ enum Status {
     QUIT,
 }
 
-struct Game {
+struct Game<'a> {
     board: Board,
-    rustbox: RustBox,
+    rustbox: &'a RustBox,
     player_pos: (usize, usize),
 }
 
-impl Game {
-    fn new(size: usize, num_of_bombs: usize) -> Self {
-        let rustbox = match RustBox::init(Default::default()) {
-            Result::Ok(v) => v,
-            Result::Err(e) => panic!("{}", e),
-        };
-
+impl<'a> Game<'a> {
+    fn new(size: usize, num_of_bombs: usize, rustbox: &'a RustBox) -> Self {
         let board = Board::new(size, num_of_bombs);
 
         Game {
@@ -138,11 +157,11 @@ impl Game {
     }
 
     fn draw(&self) {
-        let fg = Color::White;
-        let bg = Color::Black;
-
         let mut x = 0;
         let mut y = 0;
+
+        let mut fg = Color::White;
+        let bg = Color::Black;
 
         let boarder = "+---";
         let margin_blank = " ";
@@ -164,8 +183,15 @@ impl Game {
             x += 1;
             for j in 0..self.board.size {
                 let mut ch: char = ' ';
+
+                let mut fg = Color::White;
+                let bg = Color::Black;
+
                 if !self.board.grid[i][j].is_visible {
                     ch = '█';
+                    if self.board.grid[i][j].is_marked {
+                        fg = Color::Yellow;
+                    }
                 } else {
                     ch = (self.board.neighbour_bombs(i, j) + 48) as char; // Note: the 48 is there to make it compatible with ascii.
 
@@ -176,15 +202,15 @@ impl Game {
                     }
                 }
 
-                let mut str: String;
+                let str: String;
                 if i == self.player_pos.0 && j == self.player_pos.1 {
-                    let fg = Color::Red;
+                    fg = Color::Red;
                     str = margin_selected.to_owned() + &ch.to_string() + margin_selected + "|";
-                    self.rustbox.print(x, y, rustbox::RB_NORMAL, fg, bg, &str);
                 } else {
                     str = margin_blank.to_owned() + &ch.to_string() + margin_blank + "|";
-                    self.rustbox.print(x, y, rustbox::RB_NORMAL, fg, bg, &str);
                 }
+
+                self.rustbox.print(x, y, rustbox::RB_NORMAL, fg, bg, &str);
                 x += boarder.len();
             }
 
@@ -244,11 +270,19 @@ impl Game {
                             return Status::LOST;
                         }
                     }
+                    RKey::Char('m') => {
+                        self.board
+                            .mark_cell_toggle(self.player_pos.0, self.player_pos.1);
+                    }
                     _ => continue,
                 },
                 Err(e) => panic!("{}", e),
                 _ => panic!("Something happend"),
             };
+
+            if self.board.chech_win() {
+                return Status::WON;
+            }
         }
     }
 }
@@ -256,7 +290,45 @@ impl Game {
 fn main() {
     let size = 20;
     // let board = Board::new(size, 10);
-    let mut game = Game::new(size, 40);
-    // draw(&board);
-    game.run();
+    let rustbox = match RustBox::init(Default::default()) {
+        Result::Ok(v) => v,
+        Result::Err(e) => panic!("{}", e),
+    };
+
+    let mut game = Game::new(size, 40, &rustbox);
+    match game.run() {
+        Status::WON => {
+            rustbox.print(
+                0,
+                0,
+                rustbox::RB_NORMAL,
+                Color::Green,
+                Color::Black,
+                "You Won!!!",
+            );
+        }
+
+        Status::LOST => {
+            rustbox.print(
+                0,
+                0,
+                rustbox::RB_NORMAL,
+                Color::Red,
+                Color::Black,
+                "You Lost!!!",
+            );
+        }
+
+        _ => return,
+    }
+    rustbox.present();
+    loop {
+        match rustbox.poll_event(false) {
+            Ok(rustbox::Event::KeyEvent(key)) => match key {
+                _ => return,
+            },
+            Err(e) => panic!("{}", e),
+            _ => panic!("Something happend"),
+        }
+    }
 }
