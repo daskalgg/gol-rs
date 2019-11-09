@@ -1,6 +1,6 @@
 # minesweeper
 
-A CLI implementation of the game minesweeper in Rust.
+A CLI implementation of the game minesweeper in [Rust](https://www.rust-lang.org/).
 
 ---
 
